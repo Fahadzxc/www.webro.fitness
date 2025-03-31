@@ -1,3 +1,69 @@
+<?php
+session_start();
+require __DIR__ . "/vendor/autoload.php";
+include 'connect.php'; // For database connection
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+$client = new Google\Client();
+$client->setClientId("804231969129-tmpr53569nhhsga15df4hcqebgd677j0.apps.googleusercontent.com");
+$client->setClientSecret("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");
+$client->setRedirectUri("http://localhost/www.webro.fitness/user_dashboard.php");
+$client->addScope("email");
+$client->addScope("profile");
+
+$url = $client->createAuthUrl();
+
+// Handle password reset request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resetPassword'])) {
+    $email = $_POST['email'];
+    $token = generateResetToken($conn, $email);
+    sendResetEmail($email, $token);
+    echo "<script>alert('Password reset link has been sent to your email.');</script>";
+}
+
+function generateResetToken($conn, $email) {
+    $token = bin2hex(random_bytes(16));
+    $expires_at = date('Y-m-d H:i:s', strtotime('+1 hour'));
+
+    $stmt = $conn->prepare("INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)");
+    $stmt->bind_param("sss", $email, $token, $expires_at);
+    $stmt->execute();
+
+    return $token;
+}
+
+function sendResetEmail($email, $token) {
+    $mail = new PHPMailer(true);
+    try {
+        // Server settings
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.gmail.com'; // Set the SMTP server to send through
+        $mail->SMTPAuth   = true;
+        $mail->Username   = 'fahadalalawi1815@gmail.com'; // SMTP username
+        $mail->Password   = 'qgwp tibe fzud qvaw'; // SMTP password
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = 587;
+
+        // Recipients
+        $mail->setFrom('no-reply@webro.fitness', 'Webro Fitness');
+        $mail->addAddress($email);
+
+        // Content
+        $mail->isHTML(true);
+        $mail->Subject = 'Password Reset Request';
+        $mail->Body    = "Click the following link to reset your password: <a href='http://localhost/www.webro.fitness/reset_password.php?token=$token'>Reset Password</a>";
+        $mail->AltBody = "Click the following link to reset your password: http://localhost/www.webro.fitness/reset_password.php?token=$token";
+
+        $mail->send();
+        echo 'Message has been sent';
+    } catch (Exception $e) {
+        echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -66,7 +132,7 @@
                 <label for="password">Password</label>
             </div>
             <p class="recover">
-                <a href="#">Recover Password</a>
+                <a href="#" id="recoverPassword">Recover Password</a>
             </p>
             <input type="submit" class="btn" value="Sign In" name="signIn">
         </form>
@@ -74,7 +140,7 @@
             ----------or--------
         </p>
         <div class="icons">
-            <i class="fab fa-google"></i>
+            <a href="<?= $url ?>"> <i class="fab fa-google"></i></a>
             <i class="fab fa-facebook"></i>
         </div>
         <div class="links">
@@ -83,15 +149,42 @@
         </div>
     </div>
 
+    <div class="container" id="recoverPasswordForm" style="display:none;">
+        <h1 class="form-title">Recover Password</h1>
+        <form method="post" action="">
+            <div class="input-group">
+                <i class="fas fa-envelope"></i>
+                <input type="email" name="email" id="recoverEmail" placeholder="Email" required>
+                <label for="recoverEmail">Email</label>
+            </div>
+            <input type="submit" class="btn" value="Send Reset Link" name="resetPassword">
+        </form>
+        <div class="links">
+            <p>Remember your password?</p>
+            <button id="backToSignIn">Sign In</button>
+        </div>
+    </div>
+
     <script>
         document.getElementById('signInButton').addEventListener('click', function() {
             document.getElementById('signup').style.display = 'none';
             document.getElementById('signIn').style.display = 'block';
+            document.getElementById('recoverPasswordForm').style.display = 'none';
         });
 
         document.getElementById('signUpButton').addEventListener('click', function() {
             document.getElementById('signIn').style.display = 'none';
             document.getElementById('signup').style.display = 'block';
+        });
+
+        document.getElementById('recoverPassword').addEventListener('click', function() {
+            document.getElementById('signIn').style.display = 'none';
+            document.getElementById('recoverPasswordForm').style.display = 'block';
+        });
+
+        document.getElementById('backToSignIn').addEventListener('click', function() {
+            document.getElementById('recoverPasswordForm').style.display = 'none';
+            document.getElementById('signIn').style.display = 'block';
         });
     </script>
 </body>
