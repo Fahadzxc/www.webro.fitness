@@ -4,22 +4,30 @@ require 'config.php'; // Database connection
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
-    ;
+    // Redirect or handle user not logged in
+    echo "<script>window.location.href = 'login.php';</script>";
+    exit();
 }
 
 $user_id = $_SESSION['user_id'];
-$query = $conn->prepare("SELECT name, email FROM users WHERE id = ?");
+$query = $conn->prepare("SELECT firstName, lastName, email FROM users WHERE id = ?");
 $query->bind_param("i", $user_id);
 $query->execute();
 $result = $query->get_result();
-$user = $result->fetch_assoc() ?? ['name' => '', 'email' => '']; // Avoid null errors
+$user = $result->fetch_assoc() ?? ['firstName' => '', 'lastName' => '', 'email' => '']; // Avoid null errors
 
 // Handle profile update
 if (isset($_POST['update_profile'])) {
     $name = $_POST['name'];
     $email = $_POST['email'];
-    $update_query = $conn->prepare("UPDATE users SET name = ?, email = ? WHERE id = ?");
-    $update_query->bind_param("ssi", $name, $email, $user_id);
+
+    // Split name into first and last names
+    $name_parts = explode(" ", $name, 2);
+    $firstName = $name_parts[0];
+    $lastName = isset($name_parts[1]) ? $name_parts[1] : '';
+
+    $update_query = $conn->prepare("UPDATE users SET firstName = ?, lastName = ?, email = ? WHERE id = ?");
+    $update_query->bind_param("sssi", $firstName, $lastName, $email, $user_id);
     $update_query->execute();
     echo "<script>alert('Profile updated successfully!');</script>";
 }
@@ -53,43 +61,67 @@ if (isset($_POST['change_password'])) {
     <title>Settings</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script> <!-- SweetAlert -->
+    <style>
+        .card-box { border-radius: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .dashboard-title { font-size: 1.5rem; font-weight: bold; }
+        .sidebar { min-height: 100vh; background-color: #343a40; color: white; padding: 1rem; }
+        .sidebar a { color: white; display: block; padding: 0.5rem 0; text-decoration: none; border-radius: 0.5rem; transition: background-color 0.3s ease, transform 0.3s ease; }
+        .sidebar a:hover, .sidebar a.active { background-color: #495057; transform: scale(1.05); }
+        .sidebar a.active { background-color: #495057; color: #fff; }
+    </style>
 </head>
 <body>
-<div class="container mt-4">
-    <h2>Settings</h2>
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-2 sidebar">
+      <h5 class="mb-4">Admin Panel</h5>
+      <p>Welcome, <?php echo htmlspecialchars($user['firstName']) . ' ' . htmlspecialchars($user['lastName']); ?>!</p>
+      <a href="admin_dashboard.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'admin_dashboard.php' ? 'active' : ''; ?>">Dashboard</a>
+      <a href="members.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'members.php' ? 'active' : ''; ?>">Members</a>
+      <a href="billing.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'billing.php' ? 'active' : ''; ?>">Billing</a>
+      <a href="sales.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'sales.php' ? 'active' : ''; ?>">Sales</a>
+      <a href="settings.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'settings.php' ? 'active' : ''; ?>">Settings</a>
+      <a href="#" onclick="logoutConfirmation()" class="logout-btn">Logout</a>
+    </div>
 
-    <!-- Profile Update Form -->
-    <form method="post">
-        <div class="mb-3">
-            <label class="form-label">Name:</label>
-            <input type="text" name="name" class="form-control" value="<?php echo $user['name']; ?>" required>
+    <!-- Main Content -->
+    <div class="col-md-10 mt-5">
+        <div class="container">
+            <h2>Settings</h2>
+
+            <!-- Profile Update Form -->
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label">Name:</label>
+                    <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($user['firstName']) . ' ' . htmlspecialchars($user['lastName']); ?>" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Email:</label>
+                    <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($user['email']); ?>" required>
+                </div>
+                <button type="submit" name="update_profile" class="btn btn-primary">Update Profile</button>
+            </form>
+
+            <hr>
+
+            <!-- Password Change Form -->
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label">Current Password:</label>
+                    <input type="password" name="current_password" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">New Password:</label>
+                    <input type="password" name="new_password" class="form-control" required>
+                </div>
+                <button type="submit" name="change_password" class="btn btn-warning">Change Password</button>
+            </form>
+
+            <hr>
         </div>
-        <div class="mb-3">
-            <label class="form-label">Email:</label>
-            <input type="email" name="email" class="form-control" value="<?php echo $user['email']; ?>" required>
-        </div>
-        <button type="submit" name="update_profile" class="btn btn-primary">Update Profile</button>
-    </form>
-
-    <hr>
-
-    <!-- Password Change Form -->
-    <form method="post">
-        <div class="mb-3">
-            <label class="form-label">Current Password:</label>
-            <input type="password" name="current_password" class="form-control" required>
-        </div>
-        <div class="mb-3">
-            <label class="form-label">New Password:</label>
-            <input type="password" name="new_password" class="form-control" required>
-        </div>
-        <button type="submit" name="change_password" class="btn btn-warning">Change Password</button>
-    </form>
-
-    <hr>
-
-    <!-- Logout Button -->
-    <a href="#" class="btn btn-danger mt-3" onclick="logoutConfirmation();">Logout</a>
+    </div>
+  </div>
 </div>
 
 <!-- JavaScript for Logout Confirmation -->

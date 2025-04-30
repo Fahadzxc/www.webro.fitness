@@ -7,8 +7,8 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 $client = new Google\Client();
-$client->setClientId("804231969129-tmpr53569nhhsga15df4hcqebgd677j0.apps.googleusercontent.com");
-$client->setClientSecret("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");
+$client->setClientId("550534749723-4q982oe8bdn83f0mb4aviqvfhc08tdib.apps.googleusercontent.com");
+$client->setClientSecret("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");
 $client->setRedirectUri("http://localhost/www.webro.fitness/user_dashboard.php");
 $client->addScope("email");
 $client->addScope("profile");

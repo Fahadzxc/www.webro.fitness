@@ -1,8 +1,45 @@
 <?php
+session_start();
 include 'db.php';
+
+// Check if the user is logged in and if user data is available in the session
+if (!isset($_SESSION['user_id'])) {
+    echo "User not logged in.";
+    exit();
+}
+
+// Fetch the logged-in user's data from the session or database
+$user_result = $conn->query("SELECT firstName, lastName FROM users WHERE id = {$_SESSION['user_id']}");
+$user = $user_result->fetch_assoc();
+
+if (!$user) {
+    echo "User data not found.";
+    exit();
+}
 
 // Fetch all members
 $result = $conn->query("SELECT * FROM members ORDER BY id DESC");
+
+$successMessage = ''; // Variable to hold success message
+
+// Handle Add Member form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_member'])) {
+    $name = $_POST['name'];
+    $email = $_POST['email'];
+    $phone = $_POST['phone'];
+    $status = $_POST['status'];
+    $joined_date = date('Y-m-d');
+
+    $stmt = $conn->prepare("INSERT INTO members (name, email, phone, status, joined_date) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param("sssss", $name, $email, $phone, $status, $joined_date);
+    $stmt->execute();
+    $stmt->close();
+
+    $successMessage = "Member added successfully!"; // Set success message
+    header("Location: members.php?success=1"); // Redirect to the same page after adding
+    exit();
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -12,12 +49,14 @@ $result = $conn->query("SELECT * FROM members ORDER BY id DESC");
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Members</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         .card-box { border-radius: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         .dashboard-title { font-size: 1.5rem; font-weight: bold; }
         .sidebar { min-height: 100vh; background-color: #343a40; color: white; padding: 1rem; }
-        .sidebar a { color: white; display: block; padding: 0.5rem 0; text-decoration: none; }
-        .sidebar a:hover { background-color: #495057; border-radius: 0.5rem; }
+        .sidebar a { color: white; display: block; padding: 0.5rem 0; text-decoration: none; border-radius: 0.5rem; transition: background-color 0.3s ease, transform 0.3s ease; }
+        .sidebar a:hover, .sidebar a.active { background-color: #495057; transform: scale(1.05); }
+        .sidebar a.active { background-color: #495057; color: #fff; }
     </style>
 </head>
 <body>
@@ -25,36 +64,14 @@ $result = $conn->query("SELECT * FROM members ORDER BY id DESC");
     <div class="row">
         <!-- Sidebar -->
         <div class="col-md-2 sidebar">
-            <h5 class="mb-4"></h5>
-            <a href="admin_dashboard.php">Dashboard</a>
-            <a href="members.php">Members</a>
-            <a href="billing.php">Billing</a>
-           
-            <a href="sales.php">Sales</a>
-            <a href="settings.php">Settings</a> <!-- Settings Link -->
-            <a href="#" onclick="logoutConfirmation()" class="logout-btn">Logout</a> <!-- Updated Logout Button -->
-    <!-- SweetAlert2 Library -->
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
-<script>
-function logoutConfirmation() {
-    Swal.fire({
-        title: "Are you sure?",
-        text: "You will be logged out of your account.",
-        icon: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#d33",
-        cancelButtonColor: "#3085d6",
-        confirmButtonText: "Yes, log out!",
-        cancelButtonText: "Cancel"
-    }).then((result) => {
-        if (result.isConfirmed) {
-            window.location.href = "logout.php"; // Redirect to logout page
-        }
-    });
-}
-</script>
-            
+            <h5 class="mb-4">Admin Panel</h5>
+            <p>Welcome, <?php echo htmlspecialchars($user['firstName']) . ' ' . htmlspecialchars($user['lastName']); ?>!</p>
+            <a href="admin_dashboard.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'admin_dashboard.php' ? 'active' : ''; ?>">Dashboard</a>
+            <a href="members.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'members.php' ? 'active' : ''; ?>">Members</a>
+            <a href="billing.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'billing.php' ? 'active' : ''; ?>">Billing</a>
+            <a href="sales.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'sales.php' ? 'active' : ''; ?>">Sales</a>
+            <a href="settings.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'settings.php' ? 'active' : ''; ?>">Settings</a>
+            <a href="#" onclick="logoutConfirmation()" class="logout-btn">Logout</a>
         </div>
 
         <!-- Main Content -->
@@ -62,7 +79,7 @@ function logoutConfirmation() {
             <div class="container">
                 <h2>Manage Members</h2>
                 <a href="add_member.php" class="btn btn-success mb-3">Add Member</a>
-                
+
                 <table class="table table-bordered">
                     <thead>
                         <tr>
@@ -96,5 +113,36 @@ function logoutConfirmation() {
         </div>
     </div>
 </div>
+
+<script>
+    // Show success pop-up notification after adding a member
+    <?php if(isset($_GET['success']) && $_GET['success'] == 1): ?>
+        Swal.fire({
+            position: 'top-end',
+            icon: 'success',
+            title: 'Member added successfully!',
+            showConfirmButton: false,
+            timer: 5000
+        });
+    <?php endif; ?>
+    
+    function logoutConfirmation() {
+        Swal.fire({
+            title: "Are you sure?",
+            text: "You will be logged out of your account.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#d33",
+            cancelButtonColor: "#3085d6",
+            confirmButtonText: "Yes, log out!",
+            cancelButtonText: "Cancel"
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.location.href = "logout.php"; // Redirect to logout page
+            }
+        });
+    }
+</script>
+
 </body>
 </html>
