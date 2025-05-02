@@ -113,7 +113,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['renew_subscription']))
     $start_date = date('Y-m-d');
 
     // Set end date based on subscription type
-    switch($subscription_type) {
+    switch ($subscription_type) {
         case '3months':
             $end_date = date('Y-m-d', strtotime('+3 months'));
             $amount = 2999;
@@ -146,6 +146,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['renew_subscription']))
     } else {
         echo "Error: Invalid user ID.";
     }
+}
+
+// Handle subscription cancellation
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['cancel_subscription'])) {
+    $subscription_id = $_POST['subscription_id'];
+
+    // Delete the subscription record
+    $conn->query("DELETE FROM subscriptions WHERE id = $subscription_id");
+
+    // Refresh the page to show the updated subscription status
+    header("Location: user_dashboard.php?cancellation=success");
+    exit();
 }
 
 // Count streak (consecutive present days)
@@ -360,6 +372,10 @@ $attendance_percentage = ($month_stats['total_count'] > 0) ?
       <div class="alert-success-custom">
         <i class="fas fa-check-circle me-2"></i> Your subscription has been successfully renewed!
       </div>
+      <?php elseif (isset($_GET['cancellation']) && $_GET['cancellation'] == 'success'): ?>
+      <div class="alert-success-custom">
+        <i class="fas fa-check-circle me-2"></i> Your subscription has been successfully canceled!
+      </div>
       <?php endif; ?>
 
       <div class="row g-4">
@@ -399,6 +415,11 @@ $attendance_percentage = ($month_stats['total_count'] > 0) ?
                 </button>
                 <?php endif; ?>
 
+                <form method="POST" style="display:inline;">
+                  <input type="hidden" name="subscription_id" value="<?php echo $subscription['id']; ?>">
+                  <button type="submit" name="cancel_subscription" class="btn btn-danger btn-sm mt-3" onclick="return confirm('Are you sure you want to cancel this subscription?');">Cancel Subscription</button>
+                </form>
+
               <?php elseif ($subscription_expired): ?>
                 <div class="alert alert-danger">
                   <strong><i class="fas fa-times-circle me-2"></i> Subscription Expired</strong>
@@ -426,8 +447,9 @@ $attendance_percentage = ($month_stats['total_count'] > 0) ?
           <div class="card card-box">
             <div class="card-header bg-secondary text-white">
               <i class="fas fa-history me-2"></i> Payment History
+              <button type="button" class="btn btn-sm btn-primary float-end" id="togglePaymentHistory">Show</button>
             </div>
-            <div class="card-body">
+            <div class="card-body" id="paymentHistory" style="display: none;">
               <?php if ($payment_history_result->num_rows > 0): ?>
                 <table class="table">
                   <thead>
@@ -646,6 +668,31 @@ $attendance_percentage = ($month_stats['total_count'] > 0) ?
     });
   });
   <?php endif; ?>
+
+  // Show success message if subscription was canceled
+  <?php if (isset($_GET['cancellation']) && $_GET['cancellation'] == 'success'): ?>
+  document.addEventListener('DOMContentLoaded', function() {
+    Swal.fire({
+      title: "Success!",
+      text: "Your subscription has been successfully canceled.",
+      icon: "success",
+      confirmButtonColor: "#28a745"
+    });
+  });
+  <?php endif; ?>
+
+  // Toggle payment history visibility
+  document.getElementById('togglePaymentHistory').addEventListener('click', function() {
+    var paymentHistory = document.getElementById('paymentHistory');
+    var button = document.getElementById('togglePaymentHistory');
+    if (paymentHistory.style.display === 'none') {
+      paymentHistory.style.display = 'block';
+      button.textContent = 'Hide';
+    } else {
+      paymentHistory.style.display = 'none';
+      button.textContent = 'Show';
+    }
+  });
 </script>
 </body>
 </html>
