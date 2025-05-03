@@ -8,7 +8,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $user_id = $_SESSION['user_id'];
-$user_result = $conn->query("SELECT firstName, lastName, email FROM users WHERE id = $user_id");
+$user_result = $conn->query("SELECT firstName, lastName, email, creator_id FROM users WHERE id = $user_id");
 $user = $user_result->fetch_assoc();
 
 // Function to mark the user as absent if they haven't logged in within 24 hours
@@ -388,6 +388,7 @@ $attendance_percentage = ($month_stats['total_count'] > 0) ?
             <div class="card-body">
               <p><strong>Name:</strong> <?php echo htmlspecialchars($user['firstName'] . ' ' . $user['lastName']); ?></p>
               <p><strong>Email:</strong> <?php echo htmlspecialchars($user['email']); ?></p>
+              <p><strong>Created By:</strong> <?php echo htmlspecialchars($user['creator_id']); ?></p>
             </div>
           </div>
 
