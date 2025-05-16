@@ -12,9 +12,9 @@ $user_id = $_SESSION['user_id'];
 $user_result = $conn->query("SELECT firstName, lastName FROM users WHERE id = $user_id");
 $user = $user_result->fetch_assoc();
 
-// Handle Delete
-if (isset($_GET['delete'])) {
-    $invoice_id = $_GET['delete'];
+// Handle Delete Invoice
+if (isset($_GET['delete_invoice'])) {
+    $invoice_id = $_GET['delete_invoice'];
     $delete_query = "DELETE FROM invoices WHERE id = $invoice_id";
 
     if ($conn->query($delete_query)) {
@@ -22,6 +22,23 @@ if (isset($_GET['delete'])) {
         $_SESSION['message_type'] = "success";
     } else {
         $_SESSION['message'] = "Error deleting invoice: " . $conn->error;
+        $_SESSION['message_type'] = "danger";
+    }
+
+    header("Location: paid_members_crud.php");
+    exit();
+}
+
+// Handle Delete Payment
+if (isset($_GET['delete_payment'])) {
+    $payment_id = $_GET['delete_payment'];
+    $delete_query = "DELETE FROM payments WHERE payment_id = $payment_id";
+
+    if ($conn->query($delete_query)) {
+        $_SESSION['message'] = "Payment deleted successfully";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting payment: " . $conn->error;
         $_SESSION['message_type'] = "danger";
     }
 
@@ -46,18 +63,43 @@ if (isset($_GET['unpaid'])) {
     exit();
 }
 
-// Get all paid invoices for the current month
+// Get all paid invoices and payments for the current month
 $current_month = date('m');
 $current_year = date('Y');
 $query = "
-    SELECT i.id, i.invoice_number, i.amount, i.due_date, i.status,
-           u.firstName, u.lastName, u.email
+    SELECT
+        i.id,
+        i.invoice_number,
+        i.amount,
+        i.due_date,
+        i.status,
+        u.firstName,
+        u.lastName,
+        u.email,
+        'invoice' AS payment_type
     FROM invoices i
     JOIN users u ON i.member_id = u.id
     WHERE i.status = 'Paid'
     AND MONTH(i.due_date) = $current_month
     AND YEAR(i.due_date) = $current_year
-    ORDER BY i.due_date DESC
+
+    UNION
+
+    SELECT
+        p.payment_id AS id, -- Use the existing auto-increment column
+        CONCAT('PAY-', p.payment_id) AS invoice_number,
+        p.amount,
+        p.payment_date AS due_date,
+        'Paid' AS status,
+        u.firstName,
+        u.lastName,
+        u.email,
+        'payment' AS payment_type
+    FROM payments p
+    JOIN users u ON p.member_id = u.id
+    WHERE MONTH(p.payment_date) = $current_month
+    AND YEAR(p.payment_date) = $current_year
+    ORDER BY due_date DESC
 ";
 
 $result = $conn->query($query);
@@ -205,15 +247,6 @@ if (!$result) {
       <a href="admin_dashboard.php" class="sidebar-link">
         <i class="fas fa-tachometer-alt"></i> Dashboard
       </a>
-      <a href="members.php" class="sidebar-link">
-        <i class="fas fa-users"></i> Members
-      </a>
-      <a href="billing.php" class="sidebar-link">
-        <i class="fas fa-credit-card"></i> Billing
-      </a>
-      <a href="sales.php" class="sidebar-link">
-        <i class="fas fa-chart-line"></i> Sales
-      </a>
       <a href="settings.php" class="sidebar-link">
         <i class="fas fa-cog"></i> Settings
       </a>
@@ -253,12 +286,13 @@ if (!$result) {
             <table class="table table-hover">
               <thead>
                 <tr>
-                  <th>Invoice #</th>
+                  <th>Reference #</th>
                   <th>Member Name</th>
                   <th>Email</th>
                   <th>Amount</th>
-                  <th>Due Date</th>
+                  <th>Date</th>
                   <th>Status</th>
+                  <th>Type</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -271,16 +305,32 @@ if (!$result) {
                   <td>₱<?php echo number_format($row['amount'], 2); ?></td>
                   <td><?php echo date('M d, Y', strtotime($row['due_date'])); ?></td>
                   <td><span class="badge bg-success"><?php echo htmlspecialchars($row['status']); ?></span></td>
+                  <td>
+                    <?php if ($row['payment_type'] == 'payment'): ?>
+                      <span class="badge bg-info">Payment</span>
+                    <?php else: ?>
+                      <span class="badge bg-primary">Invoice</span>
+                    <?php endif; ?>
+                  </td>
                   <td class="action-buttons">
-                    <a href="invoice_details.php?id=<?php echo $row['id']; ?>" class="btn btn-info btn-sm">
-                      <i class="fas fa-eye me-1"></i> View
-                    </a>
-                    <a href="paid_members_crud.php?unpaid=<?php echo $row['id']; ?>" class="btn btn-warning btn-sm" onclick="return confirm('Are you sure you want to mark this invoice as unpaid?');">
-                      <i class="fas fa-times-circle me-1"></i> Mark as Unpaid
-                    </a>
-                    <a href="paid_members_crud.php?delete=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this invoice? This action cannot be undone.');">
-                      <i class="fas fa-trash-alt me-1"></i> Delete
-                    </a>
+                    <?php if ($row['payment_type'] == 'invoice'): ?>
+                      <a href="invoice_details.php?id=<?php echo $row['id']; ?>" class="btn btn-info btn-sm">
+                        <i class="fas fa-eye me-1"></i> View
+                      </a>
+                      <a href="paid_members_crud.php?unpaid=<?php echo $row['id']; ?>" class="btn btn-warning btn-sm" onclick="return confirm('Are you sure you want to mark this invoice as unpaid?');">
+                        <i class="fas fa-times-circle me-1"></i> Mark as Unpaid
+                      </a>
+                      <a href="paid_members_crud.php?delete_invoice=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this invoice? This action cannot be undone.');">
+                        <i class="fas fa-trash-alt me-1"></i> Delete
+                      </a>
+                    <?php else: ?>
+                      <a href="payment_details.php?id=<?php echo $row['id']; ?>" class="btn btn-info btn-sm">
+                        <i class="fas fa-eye me-1"></i> View
+                      </a>
+                      <a href="paid_members_crud.php?delete_payment=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this payment? This action cannot be undone.');">
+                        <i class="fas fa-trash-alt me-1"></i> Delete
+                      </a>
+                    <?php endif; ?>
                   </td>
                 </tr>
                 <?php endwhile; ?>
@@ -289,7 +339,7 @@ if (!$result) {
           </div>
           <?php else: ?>
           <div class="alert alert-info">
-            <i class="fas fa-info-circle me-2"></i> No paid invoices found for the current month.
+            <i class="fas fa-info-circle me-2"></i> No paid members found for the current month.
           </div>
           <?php endif; ?>
         </div>

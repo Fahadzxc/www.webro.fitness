@@ -45,46 +45,87 @@ if ($current_datetime >= $target_datetime) {
     markAbsentUsers($conn);
 }
 
-// Fetch Dashboard Stats from membership_db
-$members_result = $conn->query("SELECT COUNT(*) as total FROM members");
-$paid_result = $conn->query("SELECT COUNT(*) as total FROM invoices WHERE status='Paid' AND MONTH(due_date) = MONTH(CURRENT_DATE())");
+// Count total members (users that are not admins)
+$members_result = $conn->query("SELECT COUNT(*) as total FROM users WHERE role != 'admin'");
+
+// Updated query to count subscriptions that were created in the current month
+// This directly counts from the subscriptions table which tracks purchases
+$paid_result = $conn->query("
+    SELECT COUNT(*) as total 
+    FROM subscriptions 
+    WHERE MONTH(start_date) = MONTH(CURRENT_DATE())
+    AND YEAR(start_date) = YEAR(CURRENT_DATE())
+");
+
 $overdue_result = $conn->query("SELECT COUNT(*) as total FROM payments WHERE due_date < CURDATE() AND status != 'Paid'");
-$new_result = $conn->query("SELECT COUNT(*) as total FROM members WHERE MONTH(joined_date) = MONTH(CURRENT_DATE())");
-$cancelled_result = $conn->query("SELECT COUNT(*) as total FROM members WHERE status='Cancelled' AND MONTH(updated_at) = MONTH(CURRENT_DATE())");
+
+// Count new members (users registered in the last 7 days only)
+// MODIFIED: Changed from current month to strictly last 7 days
+$new_result = $conn->query("
+    SELECT COUNT(*) as total 
+    FROM users 
+    WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) 
+    AND role != 'admin'
+");
 
 $members = $members_result->fetch_assoc()['total'] ?? 0;
 $paid = $paid_result->fetch_assoc()['total'] ?? 0;
 $overdue = $overdue_result->fetch_assoc()['total'] ?? 0;
 $new = $new_result->fetch_assoc()['total'] ?? 0;
-$cancelled = $cancelled_result->fetch_assoc()['total'] ?? 0;
+
+// Get the current count of days with attendance from the database
+// This will determine how many days we've been counting attendance
+$days_with_attendance_query = $conn->query("
+    SELECT COUNT(DISTINCT attendance_date) as days_count
+    FROM attendance
+    WHERE attendance_date <= CURRENT_DATE()
+    ORDER BY attendance_date DESC
+");
+$days_with_attendance = $days_with_attendance_query->fetch_assoc()['days_count'] ?? 0;
+// Limit to maximum 7 days
+$days_with_attendance = min($days_with_attendance, 7);
 
 // Calculate the start and end dates for each day
 $current_date = new DateTime();
 $days = [];
+$day_labels = [];
 
+// Only process the number of days we have attendance for
 for ($i = 0; $i < 7; $i++) {
     $day = clone $current_date;
     $day->modify("-$i days")->setTime(0, 0, 0);
     $days[] = [
-        'start' => $day->format('Y-m-d H:i:s'),
-        'end' => $day->modify('+23 hours 59 minutes 59 seconds')->format('Y-m-d H:i:s')
+        'start' => $day->format('Y-m-d 00:00:00'),
+        'end' => $day->format('Y-m-d 23:59:59')
     ];
+    // For the labels, we use "Day 1" for today, "Day 2" for yesterday, etc.
+    $day_labels[] = 'Day ' . ($i + 1);
 }
 
 // Fetch attendance data for each day
 $attendance_data = [];
 foreach ($days as $index => $day) {
-    $attendance_result = $conn->query("
-        SELECT COUNT(DISTINCT member_id) as unique_logins
-        FROM attendance
-        WHERE attendance_date BETWEEN '{$day['start']}' AND '{$day['end']}'
-    ");
-    $unique_logins = $attendance_result->fetch_assoc()['unique_logins'] ?? 0;
-    $attendance_percentage = min($unique_logins * 5, 100); // Each unique login is 5%, capped at 100%
-    $attendance_data[] = $attendance_percentage;
+    $day_date = substr($day['start'], 0, 10); // Extract just the date part
+    
+    // Only process data for days that we've started counting
+    if ($index < $days_with_attendance) {
+        $attendance_result = $conn->query("
+            SELECT COUNT(DISTINCT member_id) as unique_logins
+            FROM attendance
+            WHERE attendance_date = '$day_date' AND status = 'Present'
+        ");
+        
+        $unique_logins = $attendance_result->fetch_assoc()['unique_logins'] ?? 0;
+        $attendance_percentage = min($unique_logins * 5, 100); // Each unique login is 5%, capped at 100%
+        $attendance_data[] = $attendance_percentage;
+    } else {
+        // For days we haven't started counting yet, set to null (no data)
+        $attendance_data[] = 0;
+    }
 }
 
-$member_list = $conn->query("SELECT name FROM members ORDER BY name ASC LIMIT 10");
+// Updated to fetch member names from users table
+$member_list = $conn->query("SELECT firstName, lastName FROM users WHERE role != 'admin' ORDER BY firstName ASC LIMIT 10");
 
 // Fetch recent attendance records, excluding admin users
 $recent_attendance_result = $conn->query("
@@ -103,25 +144,6 @@ $subscriptions_result = $conn->query("
     JOIN users u ON s.member_id = u.id
     ORDER BY s.end_date DESC
 ");
-
-// Handle Subscription Form Submission
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_subscription'])) {
-    $member_id = $_POST['member_id'];
-
-    // Check if the selected member is not an admin
-    $check_admin = $conn->query("SELECT role FROM users WHERE id = $member_id");
-    $user_role = $check_admin->fetch_assoc()['role'];
-
-    if ($user_role != 'admin') {
-        $start_date = date('Y-m-d');
-        $end_date = date('Y-m-d', strtotime('+1 month'));
-
-        $conn->query("INSERT INTO subscriptions (member_id, start_date, end_date) VALUES ($member_id, '$start_date', '$end_date')");
-    }
-
-    header("Location: admin_dashboard.php");
-    exit();
-}
 
 // Handle Subscription Deletion
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_subscription'])) {
@@ -399,15 +421,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_subscription'])
       <a href="admin_dashboard.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'admin_dashboard.php' ? 'active' : ''; ?>">
         <i class="fas fa-tachometer-alt"></i> Dashboard
       </a>
-      <a href="members.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'members.php' ? 'active' : ''; ?>">
-        <i class="fas fa-users"></i> Members
-      </a>
-      <a href="billing.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'billing.php' ? 'active' : ''; ?>">
-        <i class="fas fa-credit-card"></i> Billing
-      </a>
-      <a href="sales.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'sales.php' ? 'active' : ''; ?>">
-        <i class="fas fa-chart-line"></i> Sales
-      </a>
       <a href="settings.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'settings.php' ? 'active' : ''; ?>">
         <i class="fas fa-cog"></i> Settings
       </a>
@@ -418,44 +431,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_subscription'])
     <div class="col-md-10 content-area">
       <div class="row mb-4">
         <div class="col-md-8">
-          <div class="card card-box">
-            <div class="card-header bg-primary text-white">
-              <i class="fas fa-money-bill-wave me-2"></i> Payment Overview (This Month)
-            </div>
-            <div class="card-body">
-              <ul class="list-group">
-                <li class="list-group-item">Schedule: <strong><?php echo date('F d, Y'); ?></strong></li>
-                <li class="list-group-item">Paid: <strong><?php echo $paid; ?></strong></li>
-                <li class="list-group-item">Overdue: <strong><?php echo $overdue; ?></strong></li>
-              </ul>
-            </div>
-          </div>
           <div class="card card-box mt-4">
             <div class="card-header bg-info text-white">
               <i class="fas fa-chart-pie me-2"></i> Statistics
             </div>
             <div class="card-body">
               <div class="row text-center">
-                <!-- Make the stat boxes clickable -->
-                <div class="col-6 col-md-3 mb-3 stat-box clickable-stat" onclick="window.location.href='members_crud.php'">
+                <!-- Updated stat boxes to use data from users table - Removed Cancelled -->
+                <div class="col-6 col-md-4 mb-3 stat-box clickable-stat" onclick="window.location.href='members_crud.php'">
                   <i class="fas fa-users fa-2x text-primary"></i>
                   <div class="number"><?php echo $members; ?></div>
                   <div class="label">Current Members</div>
                 </div>
-                <div class="col-6 col-md-3 mb-3 stat-box clickable-stat" onclick="window.location.href='paid_members_crud.php'">
+                <div class="col-6 col-md-4 mb-3 stat-box clickable-stat" onclick="window.location.href='paid_members_crud.php'">
                   <i class="fas fa-check-circle fa-2x text-success"></i>
                   <div class="number"><?php echo $paid; ?></div>
                   <div class="label">Paid This Month</div>
                 </div>
-                <div class="col-6 col-md-3 mb-3 stat-box clickable-stat" onclick="window.location.href='new_members_crud.php'">
+                <div class="col-6 col-md-4 mb-3 stat-box clickable-stat" onclick="window.location.href='new_members_crud.php'">
                   <i class="fas fa-user-plus fa-2x text-info"></i>
                   <div class="number"><?php echo $new; ?></div>
-                  <div class="label">New Members</div>
-                </div>
-                <div class="col-6 col-md-3 mb-3 stat-box">
-                  <i class="fas fa-user-minus fa-2x text-danger"></i>
-                  <div class="number"><?php echo $cancelled; ?></div>
-                  <div class="label">Cancelled</div>
+                  <div class="label">New Members (Last 7 Days)</div>
                 </div>
               </div>
             </div>
@@ -465,26 +461,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_subscription'])
               <i class="fas fa-clipboard-list me-2"></i> Subscriptions
             </div>
             <div class="card-body">
-              <form method="POST">
-                <div class="mb-3">
-                  <label for="member_id" class="form-label">Member</label>
-                  <select class="form-select" id="member_id" name="member_id" required>
-                    <?php
-                    // Modified query to exclude admin users
-                    $members_list = $conn->query("SELECT id, firstName, lastName FROM users WHERE role != 'admin'");
-                    while ($member = $members_list->fetch_assoc()): ?>
-                      <option value="<?php echo $member['id']; ?>">
-                        <?php echo htmlspecialchars($member['firstName'] . ' ' . $member['lastName']); ?>
-                      </option>
-                    <?php endwhile; ?>
-                  </select>
-                </div>
-                <button type="submit" name="add_subscription" class="btn btn-primary">
-                  <i class="fas fa-plus me-1"></i> Add Subscription
-                </button>
-              </form>
+              <!-- Removed Add Subscription form -->
               <?php if ($subscriptions_result->num_rows > 0): ?>
-                <div class="table-responsive mt-4">
+                <div class="table-responsive">
                   <table class="table table-hover">
                     <thead>
                       <tr>
@@ -541,7 +520,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_subscription'])
                 <?php while ($row = $member_list->fetch_assoc()): ?>
                   <li class="list-group-item">
                     <i class="fas fa-user me-2 text-secondary"></i>
-                    <?php echo htmlspecialchars($row['name']); ?>
+                    <?php echo htmlspecialchars($row['firstName'] . ' ' . $row['lastName']); ?>
                   </li>
                 <?php endwhile; ?>
               </ul>
@@ -615,7 +594,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_subscription'])
   const attendanceChart = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7'],
+      labels: <?php echo json_encode($day_labels); ?>,
       datasets: [{
         label: 'Attendance Percentage',
         data: [<?php echo implode(', ', $attendance_data); ?>],
